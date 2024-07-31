@@ -1,14 +1,23 @@
 # TextureMaterialFinder
-searches pdrive for for vanilla textures/materials displays image preview and any linked textures/materials
 
-currently only searches P:\DZ\Structures
-once i improve the search and filter ill add the rest of the pdrive
+TextureMaterialFinder is a tool that searches the P:\DZ\Structures directory for vanilla textures and materials. It displays image previews and any linked textures/materials.
 
+## Current Features
+- Searches P:\DZ\Structures for textures and materials.
+- Displays image previews and linked textures/materials.
 
-your gonna need to also convert your paa's to png i created a bat script todo this using paltopacE
+## Future Improvements
+- Enhance search and filter capabilities.
+- Expand search to include the entire P:\ drive.
 
-https://github.com/DayZ-RF/DayZ-Modding-Features/tree/main/Paa2Png
+## Requirements
+- Convert PAA files to PNG format using Pal2PacE. A batch script is provided below.
 
+## Batch Script for PAA to PNG Conversion
+
+To convert your PAA files to PNG format, use the following batch script:
+
+```batch
 @echo off
 setlocal enabledelayedexpansion
 
