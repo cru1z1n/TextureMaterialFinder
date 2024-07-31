@@ -16,7 +16,7 @@ TextureMaterialFinder is a tool that searches the P:\DZ\Structures directory for
 ## Batch Script for PAA to PNG Conversion
 
 To convert your PAA files to PNG format, use the following batch script:
-
+For more information on Pal2PacE, visit the [DayZ-Modding-Features repository](https://github.com/DayZ-RF/DayZ-Modding-Features/tree/main/Paa2Png).
 ```batch
 @echo off
 setlocal enabledelayedexpansion
