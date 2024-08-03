@@ -6,7 +6,7 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, PNGImage, System.IOUtils, System.Types,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Menus, System.StrUtils, System.Threading, System.Diagnostics,
-  Vcl.Clipbrd,  System.Generics.Collections;
+  Vcl.Clipbrd, System.Generics.Collections;
 
 type
   TForm1 = class(TForm)
@@ -25,6 +25,11 @@ type
     Label4: TLabel;
     Label5: TLabel;
     Label6: TLabel;
+    TreeViewp3d: TTreeView;
+    Label7: TLabel;
+    Label8: TLabel;
+    popupImage: TImage;
+    Panel1: TPanel;
 
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -33,29 +38,28 @@ type
     procedure TreeFilterChange(Sender: TObject);
     procedure ApplyFilterClick(Sender: TObject);
     procedure ImageFilePathDblClick(Sender: TObject);
-    procedure TreeViewRVmatsChange(Sender: TObject; Node: TTreeNode); // New event for TreeFilter change
+    procedure TreeViewRVmatsChange(Sender: TObject; Node: TTreeNode);
+    procedure SelectedImageMouseEnter(Sender: TObject);
+    procedure SelectedImageMouseLeave(Sender: TObject);
+
   private
     OriginalPngFiles: TStringDynArray;
     LastFilterTime: TStopwatch;
     procedure LoadPngFiles;
-
-    procedure UpdateLoadingAnimation(var LastUpdate: TStopwatch; const State: Integer);
-
     procedure SearchRvmatsForPng(const PngName: string);
-
     procedure DisplaySelectedImage(const PngFilePath: string);
     function FindOrCreateNode(Root: TTreeNode; const NodeText: string): TTreeNode;
     procedure DisplayRvmatContent(const RvmatFilePath: string);
-    procedure FilterTreeView(const FilterText: string); // New method for filtering tree view
-    procedure UpdateListBox(const Files: TArray<string>); // New method to update ListBox
-    procedure DoFilterTreeView; // Debounce filter method
-
+    procedure FilterTreeView(const FilterText: string);
+    procedure UpdateListBox(const Files: TArray<string>);
+    procedure DoFilterTreeView;
     function FindPaaFilesInRvmat(const RvmatContent: string): TArray<string>;
     procedure AddRvmatToTree(const RvmatFile: string; const PaaFiles: TArray<string>);
     procedure LoadRvmats;
 
+    procedure LoadP3dFiles;
+    function FindOrCreateNodeInTreeView(TreeView: TTreeView; Root: TTreeNode; const NodeText: string): TTreeNode;
   public
-    { Public declarations }
   end;
 
 var
@@ -65,6 +69,109 @@ implementation
 
 {$R *.dfm}
 
+function TForm1.FindOrCreateNodeInTreeView(TreeView: TTreeView; Root: TTreeNode; const NodeText: string): TTreeNode;
+var
+  I: Integer;
+begin
+  Result := nil;
+  if Assigned(Root) then
+  begin
+    for I := 0 to Root.Count - 1 do
+      if Root.Item[I].Text = NodeText then
+        Exit(Root.Item[I]);
+  end
+  else
+  begin
+    for I := 0 to TreeView.Items.Count - 1 do
+      if TreeView.Items[I].Text = NodeText then
+        Exit(TreeView.Items[I]);
+  end;
+  Result := TreeView.Items.AddChild(Root, NodeText);
+end;
+
+
+procedure TForm1.LoadP3dFiles;
+var
+  P3dFiles: TStringDynArray;
+  RootDir, P3dFile, RelativePath, SubDir: string;
+begin
+  RootDir := 'P:\DZ\structures';
+  P3dFiles := TDirectory.GetFiles(RootDir, '*.p3d', TSearchOption.soAllDirectories);
+
+  TThread.Queue(nil,
+    procedure
+    begin
+      TreeViewp3d.Items.Clear;
+    end);
+
+  for P3dFile in P3dFiles do
+  begin
+    TThread.Synchronize(nil,
+      procedure
+      var
+        RootNode, SubNode: TTreeNode;
+      begin
+        RelativePath := ExtractRelativePath(RootDir + '\', P3dFile);
+        SubDir := ExtractFilePath(RelativePath);
+        RootNode := FindOrCreateNodeInTreeView(TreeViewp3d, nil, SubDir);
+        SubNode := TreeViewp3d.Items.AddChild(RootNode, TPath.GetFileName(P3dFile));
+        SubNode.Data := StrNew(PChar(P3dFile));
+      end);
+  end;
+end;
+
+
+procedure TForm1.FormCreate(Sender: TObject);
+begin
+  LastFilterTime := TStopwatch.StartNew;
+
+  TTask.Run(LoadPngFiles);
+  TTask.Run(LoadRvmats);
+  TTask.Run(LoadP3dFiles);
+
+  OnDestroy := FormDestroy;
+end;
+
+
+procedure TForm1.FormDestroy(Sender: TObject);
+var
+  I: Integer;
+begin
+  for I := 0 to TreeViewPngFiles.Items.Count - 1 do
+    if TreeViewPngFiles.Items[I].Data <> nil then
+      StrDispose(PChar(TreeViewPngFiles.Items[I].Data));
+end;
+
+procedure TForm1.LoadPngFiles;
+var
+  PngFiles: TStringDynArray;
+  RootDir, PngFile, RelativePath, SubDir: string;
+begin
+  RootDir := 'P:\DZ\structures';
+  PngFiles := TDirectory.GetFiles(RootDir, '*.png', TSearchOption.soAllDirectories);
+
+  TThread.Queue(nil,
+    procedure
+    begin
+      TreeViewPngFiles.Items.Clear;
+      OriginalPngFiles := PngFiles;
+    end);
+
+  for PngFile in PngFiles do
+  begin
+    TThread.Synchronize(nil,
+      procedure
+      var
+        RootNode, SubNode: TTreeNode;
+      begin
+        RelativePath := ExtractRelativePath(RootDir + '\', PngFile);
+        SubDir := ExtractFilePath(RelativePath);
+        RootNode := FindOrCreateNode(nil, SubDir);
+        SubNode := TreeViewPngFiles.Items.AddChild(RootNode, TPath.GetFileName(PngFile));
+        SubNode.Data := StrNew(PChar(PngFile));
+      end);
+  end;
+end;
 
 procedure TForm1.LoadRvmats;
 var
@@ -100,7 +207,6 @@ begin
   end;
 end;
 
-
 function TForm1.FindPaaFilesInRvmat(const RvmatContent: string): TArray<string>;
 var
   Lines: TArray<string>;
@@ -114,16 +220,12 @@ begin
     begin
       if Line.Contains('texture="') and Line.Contains('.paa"') then
       begin
-        // Extract the path and change .paa to .png
         PaaPath := Line.Substring(Line.IndexOf('texture="') + 9);
         PaaPath := PaaPath.Substring(0, PaaPath.IndexOf('"'));
         PaaPath := PaaPath.Replace('.paa', '.png');
 
-        // Ensure the path is prefixed with P:\
         if not PaaPath.StartsWith('P:\') then
-        begin
           PaaPath := 'P:\' + PaaPath;
-        end;
 
         PaaFiles.Add(PaaPath);
       end;
@@ -134,76 +236,145 @@ begin
   end;
 end;
 
-
 procedure TForm1.AddRvmatToTree(const RvmatFile: string; const PaaFiles: TArray<string>);
 var
   RvmatNode, PaaNode: TTreeNode;
   PaaFile: string;
 begin
   RvmatNode := TreeViewRVmats.Items.AddChild(nil, TPath.GetFileName(RvmatFile));
-  RvmatNode.Data := StrNew(PChar(RvmatFile)); // Store the .rvmat file path in the parent node's data
+  RvmatNode.Data := StrNew(PChar(RvmatFile));
 
   for PaaFile in PaaFiles do
   begin
     PaaNode := TreeViewRVmats.Items.AddChild(RvmatNode, PaaFile);
-    PaaNode.Data := StrNew(PChar(PaaFile)); // Store the .png path or name as needed
+    PaaNode.Data := StrNew(PChar(PaaFile));
   end;
 end;
 
-
-procedure TForm1.FormCreate(Sender: TObject);
+procedure TForm1.TreeViewPngFilesChange(Sender: TObject; Node: TTreeNode);
+var
+  SelectedPng, PngFileName: string;
 begin
-  LastFilterTime := TStopwatch.StartNew;
+  if Assigned(Node) and Assigned(Node.Data) then
+  begin
+    SelectedPng := PChar(Node.Data);
+    PngFileName := TPath.GetFileNameWithoutExtension(SelectedPng);
 
-  // Load PNG files in a background thread to keep the UI responsive
-  TTask.Run(
-    procedure
-    begin
-      LoadPngFiles;
-    end);
+    TThread.Queue(nil,
+      procedure
+      begin
+        ImageFilePath.Text := SelectedPng.Replace('.png','.paa');
+        ListBoxResults.Clear;
+        DisplaySelectedImage(SelectedPng);
+      end);
 
-  // Load RVMat files in a background thread to keep the UI responsive
-  TTask.Run(
-    procedure
-    begin
-      LoadRvmats;
-    end);
-
-  OnDestroy := FormDestroy;
+    TTask.Run(procedure begin SearchRvmatsForPng(PngFileName); end);
+  end;
 end;
 
-
-procedure TForm1.FormDestroy(Sender: TObject);
+procedure TForm1.TreeViewRVmatsChange(Sender: TObject; Node: TTreeNode);
 var
-  I: Integer;
+  SelectedPath, RvmatPath, ImagePath, BasePath: string;
+  ImageFound: Boolean;
 begin
-  for I := 0 to TreeViewPngFiles.Items.Count - 1 do
+  if Assigned(Node) and Assigned(Node.Data) then
   begin
-    if TreeViewPngFiles.Items[I].Data <> nil then
+    SelectedPath := PChar(Node.Data);
+    if not SelectedPath.StartsWith('P:\') then
+      SelectedPath := 'P:\' + SelectedPath;
+
+    if SelectedPath.ToLower.Contains('.rvmat') then
     begin
-      StrDispose(PChar(TreeViewPngFiles.Items[I].Data));
+      RVMatFilePath.Text := SelectedPath;
+      DisplayRvmatContent(SelectedPath);
+      ImageFilePath.Clear;
+      SelectedImage.Picture := nil;
+    end
+    else
+    begin
+      ImagePath := SelectedPath;
+      if Assigned(Node.Parent) and Assigned(Node.Parent.Data) then
+      begin
+        RvmatPath := PChar(Node.Parent.Data);
+        if not RvmatPath.StartsWith('P:\') then
+          RvmatPath := 'P:\' + RvmatPath;
+
+        RVMatFilePath.Text := RvmatPath;
+        DisplayRvmatContent(RvmatPath);
+      end;
+      ImageFilePath.Text := ImagePath;
+      DisplaySelectedImage(ImagePath);
+    end;
+  end
+  else
+  begin
+    ImageFilePath.Clear;
+    SelectedImage.Picture := nil;
+    RVMatFilePath.Clear;
+    Memo1.Clear;
+  end;
+
+  if (SelectedImage.Picture = nil) or (SelectedImage.Picture.Graphic = nil) then
+  begin
+    ImageFound := False;
+    if Assigned(Node) and Assigned(Node.Data) then
+    begin
+      BasePath := ChangeFileExt(SelectedPath, '');
+      if FileExists(BasePath + '_co.png') then
+      begin
+        ImagePath := BasePath + '_co.png';
+        ImageFound := True;
+      end
+      else if FileExists(BasePath + '_ca.png') then
+      begin
+        ImagePath := BasePath + '_ca.png';
+        ImageFound := True;
+      end;
+
+      if ImageFound then
+      begin
+        ImageFilePath.Text := ImagePath;
+        DisplaySelectedImage(ImagePath);
+      end;
     end;
   end;
 end;
 
+procedure TForm1.ListBoxResultsClick(Sender: TObject);
+var
+  SelectedRvmat: string;
+  I: Integer;
+  Node: TTreeNode;
+begin
+  if ListBoxResults.ItemIndex <> -1 then
+  begin
+    SelectedRvmat := ListBoxResults.Items[ListBoxResults.ItemIndex];
+    RVMatFilePath.Text := SelectedRvmat;
+    DisplayRvmatContent(SelectedRvmat);
+
+    for I := 0 to TreeViewRVmats.Items.Count - 1 do
+    begin
+      Node := TreeViewRVmats.Items[I];
+      if Assigned(Node.Data) and (PChar(Node.Data) = SelectedRvmat) then
+      begin
+        TreeViewRVmats.Selected := Node;
+        Node.MakeVisible;
+        Node.Expand(True);
+        Break;
+      end;
+    end;
+  end;
+end;
 
 procedure TForm1.ImageFilePathDblClick(Sender: TObject);
 var
   SelectedNode: TTreeNode;
 begin
-  // Get the selected node from the TreeView
   SelectedNode := TreeViewPngFiles.Selected;
-
-  // Check if a node is selected
   if Assigned(SelectedNode) then
-  begin
-    // Assuming ImageFilePath is an Edit control where the selected node's path is displayed
-    Clipboard.AsText := ImageFilePath.Text;
-  end
+    Clipboard.AsText := ImageFilePath.Text
   else
-  begin
     ShowMessage('No file selected. Please select a file from the list.');
-  end;
 end;
 
 function TForm1.FindOrCreateNode(Root: TTreeNode; const NodeText: string): TTreeNode;
@@ -214,195 +385,23 @@ begin
   if Assigned(Root) then
   begin
     for I := 0 to Root.Count - 1 do
-    begin
       if Root.Item[I].Text = NodeText then
-      begin
-        Result := Root.Item[I];
-        Exit;
-      end;
-    end;
+        Exit(Root.Item[I]);
   end
   else
   begin
     for I := 0 to TreeViewPngFiles.Items.Count - 1 do
-    begin
       if TreeViewPngFiles.Items[I].Text = NodeText then
-      begin
-        Result := TreeViewPngFiles.Items[I];
-        Exit;
-      end;
-    end;
+        Exit(TreeViewPngFiles.Items[I]);
   end;
-
   Result := TreeViewPngFiles.Items.AddChild(Root, NodeText);
-end;
-
-procedure TForm1.LoadPngFiles;
-var
-  PngFiles: TStringDynArray;
-  RootDir, PngFile: string;
-begin
-  RootDir := 'P:\DZ\structures';
-  PngFiles := TDirectory.GetFiles(RootDir, '*.png', TSearchOption.soAllDirectories);
-
-  TThread.Queue(nil,
-    procedure
-    begin
-      TreeViewPngFiles.Items.Clear;
-      OriginalPngFiles := PngFiles;
-    end);
-
-  for PngFile in PngFiles do
-  begin
-    TThread.Synchronize(nil,
-      procedure
-      var
-        RelativePath, SubDir: string;
-        RootNode, SubNode: TTreeNode;
-      begin
-        RelativePath := ExtractRelativePath(RootDir + '\', PngFile);
-        SubDir := ExtractFilePath(RelativePath);
-        RootNode := FindOrCreateNode(nil, SubDir);  // Add or find the directory node
-
-        // Add the PNG file as a child node under its directory
-        SubNode := TreeViewPngFiles.Items.AddChild(RootNode, TPath.GetFileName(PngFile));
-        SubNode.Data := StrNew(PChar(PngFile));  // Use StrNew to allocate memory for the path string
-      end);
-  end;
-end;
-
-procedure TForm1.TreeViewPngFilesChange(Sender: TObject; Node: TTreeNode);
-var
-  SelectedPng, PngFileName: string;
-begin
-  if Node <> nil then
-  begin
-    if Node.Data <> nil then
-    begin
-      SelectedPng := PChar(Node.Data);  // Properly typecast the Data property
-      PngFileName := TPath.GetFileNameWithoutExtension(SelectedPng);
-
-      TThread.Queue(nil,
-        procedure
-        begin
-          ImageFilePath.Text := SelectedPng; // Set the file path to the edit control
-          ListBoxResults.Clear;
-          DisplaySelectedImage(SelectedPng);  // Display the selected image
-        end);
-
-      TTask.Run(
-        procedure
-        begin
-          SearchRvmatsForPng(PngFileName);
-        end);
-    end;
-  end;
-end;
-
-procedure TForm1.TreeViewRVmatsChange(Sender: TObject; Node: TTreeNode);
-var
-  SelectedPath, RvmatPath, ImagePath: string;
-begin
-  if Assigned(Node) and Assigned(Node.Data) then
-  begin
-    SelectedPath := PChar(Node.Data);
-
-    // Ensure the path is prefixed with P:\
-    if not SelectedPath.StartsWith('P:\') then
-    begin
-      SelectedPath := 'P:\' + SelectedPath;
-    end;
-
-    if SelectedPath.ToLower.Contains('.rvmat') then
-    begin
-      // Update the RVMatFilePath edit control with the selected RVMat path
-      RVMatFilePath.Text := SelectedPath;
-
-      // Display the content of the selected RVMat file
-      DisplayRvmatContent(SelectedPath);
-
-      // Clear the ImageFilePath edit control and image
-      ImageFilePath.Clear;
-      SelectedImage.Picture := nil;
-    end
-    else
-    begin
-      ImagePath := SelectedPath;
-      if Assigned(Node.Parent) and Assigned(Node.Parent.Data) then
-      begin
-        RvmatPath := PChar(Node.Parent.Data);
-
-        // Ensure the path is prefixed with P:\
-        if not RvmatPath.StartsWith('P:\') then
-        begin
-          RvmatPath := 'P:\' + RvmatPath;
-        end;
-
-        // Update the RVMatFilePath edit control with the parent node's RVMat path
-        RVMatFilePath.Text := RvmatPath;
-
-        // Display the content of the parent node's RVMat file
-        DisplayRvmatContent(RvmatPath);
-      end;
-
-      // Update the ImageFilePath edit control with the selected image path
-      ImageFilePath.Text := ImagePath;
-
-      // Display the selected image
-      DisplaySelectedImage(ImagePath);
-    end;
-  end
-  else
-  begin
-    // Clear the image and the path if no valid node is selected
-    ImageFilePath.Clear;
-    SelectedImage.Picture := nil;
-    RVMatFilePath.Clear;
-    Memo1.Clear;
-  end;
-end;
-
-procedure TForm1.ListBoxResultsClick(Sender: TObject);
-var
-  SelectedRvmat: string;
-begin
-  if ListBoxResults.ItemIndex <> -1 then
-  begin
-    SelectedRvmat := ListBoxResults.Items[ListBoxResults.ItemIndex];
-    RVMatFilePath.Text := SelectedRvmat; // Set the selected RVMat file path
-    DisplayRvmatContent(SelectedRvmat);
-  end;
-end;
-
-procedure TForm1.UpdateLoadingAnimation(var LastUpdate: TStopwatch; const State: Integer);
-const
-  LoadingTexts: array[0..3] of string = ('Searching.', 'Searching..', 'Searching...', 'Searching....');
-begin
-  if LastUpdate.ElapsedMilliseconds > 500 then // Update every 500 ms
-  begin
-    LastUpdate := TStopwatch.StartNew;
-    TThread.Queue(nil,
-      procedure
-      begin
-        ListBoxResults.Items.BeginUpdate;
-        try
-          ListBoxResults.Clear;
-          ListBoxResults.Items.Add(LoadingTexts[State]);
-        finally
-          ListBoxResults.Items.EndUpdate;
-        end;
-      end);
-  end;
 end;
 
 procedure TForm1.SearchRvmatsForPng(const PngName: string);
 var
   Files: TStringDynArray;
   ResultsList: TThreadList<string>;
-  AnimationState: Integer;
-  LastUpdate: TStopwatch;
 begin
-  // Show the initial searching message
   TThread.Queue(nil,
     procedure
     begin
@@ -418,10 +417,6 @@ begin
   Files := TDirectory.GetFiles('P:\DZ\structures', '*.rvmat', TSearchOption.soAllDirectories);
   ResultsList := TThreadList<string>.Create;
   try
-    AnimationState := 0;
-    LastUpdate := TStopwatch.StartNew;
-
-    // Use TParallel.For to process files in parallel
     TParallel.For(0, High(Files),
       procedure(Index: Integer)
       var
@@ -435,9 +430,7 @@ begin
             try
               FileContent.LoadFromStream(FileStream);
               if ContainsText(FileContent.Text, PngName) then
-              begin
                 ResultsList.Add(Files[Index]);
-              end;
             finally
               FileContent.Free;
             end;
@@ -446,21 +439,14 @@ begin
           end;
         except
           on E: Exception do
-          begin
             TThread.Queue(nil,
               procedure
               begin
                 ShowMessage('Error processing file: ' + Files[Index] + sLineBreak + E.Message);
               end);
-          end;
         end;
-
-        // Update the loading animation
-        UpdateLoadingAnimation(LastUpdate, AnimationState);
-        AnimationState := (AnimationState + 1) mod 4;
       end);
 
-    // Collect results from the thread-safe list
     var ResultsArray: TArray<string>;
     with ResultsList.LockList do
     try
@@ -469,7 +455,6 @@ begin
       ResultsList.UnlockList;
     end;
 
-    // Update the ListBox on the main thread
     TThread.Queue(nil,
       procedure
       begin
@@ -483,6 +468,20 @@ begin
   end;
 end;
 
+procedure TForm1.SelectedImageMouseEnter(Sender: TObject);
+begin
+    popupImage.Visible  :=  True;
+    Panel1.Visible  :=  True;
+    popupImage.Picture :=  SelectedImage.Picture;
+    popupImage.BringToFront;
+end;
+
+procedure TForm1.SelectedImageMouseLeave(Sender: TObject);
+begin
+  popupImage.Visible  :=  False;
+  panel1.Visible  :=  false;
+end;
+
 procedure TForm1.UpdateListBox(const Files: TArray<string>);
 begin
   TThread.Queue(nil,
@@ -492,9 +491,7 @@ begin
       try
         ListBoxResults.Clear;
         for var FileName in Files do
-        begin
           ListBoxResults.Items.Add(FileName);
-        end;
       finally
         ListBoxResults.Items.EndUpdate;
       end;
@@ -508,13 +505,9 @@ begin
     begin
       try
         if FileExists(PngFilePath) then
-        begin
-          SelectedImage.Picture.LoadFromFile(PngFilePath);
-        end
+          SelectedImage.Picture.LoadFromFile(PngFilePath)
         else
-        begin
           ShowMessage('File not found: ' + PngFilePath);
-        end;
       except
         on E: Exception do
           ShowMessage('Error loading image: ' + E.Message);
@@ -527,11 +520,7 @@ begin
   if LastFilterTime.ElapsedMilliseconds > 300 then
   begin
     LastFilterTime := TStopwatch.StartNew;
-    TTask.Run(
-      procedure
-      begin
-        DoFilterTreeView;
-      end);
+    TTask.Run(DoFilterTreeView);
   end;
 end;
 
@@ -550,9 +539,7 @@ begin
           Memo1.Lines.Text := FileContent.Text;
         end
         else
-        begin
           Memo1.Lines.Text := 'File not found: ' + RvmatFilePath;
-        end;
       finally
         FileContent.Free;
       end;
@@ -561,16 +548,11 @@ end;
 
 procedure TForm1.TreeFilterChange(Sender: TObject);
 begin
-  // Debounce the filter input
-  // if LastFilterTime.ElapsedMilliseconds > 300 then
-  // begin
-  //   LastFilterTime := TStopwatch.StartNew;
-  //   TTask.Run(
-  //     procedure
-  //    begin
-  //       DoFilterTreeView;
-  //    end);
-  // end;
+  if LastFilterTime.ElapsedMilliseconds > 300 then
+  begin
+    LastFilterTime := TStopwatch.StartNew;
+    TTask.Run(DoFilterTreeView);
+  end;
 end;
 
 procedure TForm1.DoFilterTreeView;
@@ -606,15 +588,12 @@ begin
         begin
           RelativePath := ExtractRelativePath(RootDir + '\', PngFile);
           SubDir := ExtractFilePath(RelativePath);
-          RootNode := FindOrCreateNode(nil, SubDir);  // Add or find the directory node
-          // Add the PNG file as a child node under its directory
+          RootNode := FindOrCreateNode(nil, SubDir);
           SubNode := TreeViewPngFiles.Items.AddChild(RootNode, TPath.GetFileName(PngFile));
-          SubNode.Data := StrNew(PChar(PngFile));  // Use StrNew to allocate memory for the path string
+          SubNode.Data := StrNew(PChar(PngFile));
         end);
     end;
   end;
 end;
 
-
 end.
-
